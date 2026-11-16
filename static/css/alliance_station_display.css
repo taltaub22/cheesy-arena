@@ -174,3 +174,41 @@ body[data-position=right] #inMatch #blueScore {
   font-family: "FuturaLT";
   font-size: 50px;
 }
+
+/* Optional touch buttons for letting the team stop its own robot (enabled with the "stops" display option). */
+#stopButtons {
+  display: none;
+}
+body[data-stops=true] #stopButtons {
+  display: flex;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 30%;
+  gap: 4%;
+  padding: 0 2% 2% 2%;
+  z-index: 10;
+}
+#stopButtons button {
+  flex: 1;
+  border: 0;
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 8vh;
+  color: #fff;
+  touch-action: manipulation;
+}
+#stopButtons #eStopButton {
+  flex: 2;
+  background-color: #c00;
+}
+#stopButtons #aStopButton {
+  background-color: #d80;
+}
+#stopButtons button:active {
+  filter: brightness(1.4);
+}
+#stopButtons button:disabled {
+  opacity: 0.35;
+}

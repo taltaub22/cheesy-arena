@@ -1433,6 +1433,20 @@ func (arena *Arena) EStop(station string) error {
 	return nil
 }
 
+// Latches the autonomous stop for the given alliance station during the autonomous period. The latch is released by
+// handleTeamStop once the autonomous period is over.
+func (arena *Arena) AStop(station string) error {
+	if arena.MatchState != AutoPeriod {
+		return fmt.Errorf("cannot A-stop robot when the autonomous period is not in progress")
+	}
+	if _, ok := arena.AllianceStations[station]; !ok {
+		return fmt.Errorf("Invalid alliance station '%s'.", station)
+	}
+	arena.AllianceStations[station].AStop = true
+	arena.ArenaStatusNotifier.Notify()
+	return nil
+}
+
 func (arena *Arena) ToggleBypass(station string) error {
 	if _, ok := arena.AllianceStations[station]; !ok {
 		return fmt.Errorf("Invalid alliance station '%s'.", station)
