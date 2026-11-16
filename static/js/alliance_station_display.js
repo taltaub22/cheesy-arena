@@ -141,7 +141,7 @@ $(function () {
 
   // Show the stop buttons only if this display has been configured with them.
   if (urlParams.get("stops") === "true") {
-    $("body").attr("data-stops", "true");
+    $("body").attr("data-stops", "true").attr("data-alliance", station[0]);
     $("#eStopButton").on("click", function () {
       websocket.send("eStop", null);
     });
