@@ -15,9 +15,10 @@ import (
 )
 
 // Renders the team number and status display shown above each alliance station. If the "stops" option is enabled, the
-// display also shows touch buttons that let the team E-stop or A-stop its own station.
+// display also shows touch buttons that let the team E-stop or A-stop its own station. The option is deliberately not part
+// of the enforced display configuration, so that existing URLs without it keep working without a redirect.
 func (web *Web) allianceStationDisplayHandler(w http.ResponseWriter, r *http.Request) {
-	if !web.enforceDisplayConfiguration(w, r, map[string]string{"station": "R1", "stops": "false"}) {
+	if !web.enforceDisplayConfiguration(w, r, map[string]string{"station": "R1"}) {
 		return
 	}
 
