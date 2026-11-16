@@ -210,5 +210,37 @@ body[data-stops=true] #stopButtons {
   filter: brightness(1.4);
 }
 #stopButtons button:disabled {
-  opacity: 0.35;
+  background-color: #222;
+  color: #f66;
+  border: 0.8vh solid #f66;
+}
+
+/* With the stop buttons shown, the rest of the display uses the top 70% of the screen and scales with its height, so
+   that the team name and the match clock are not hidden behind the buttons on a tablet. */
+body[data-stops=true] #match {
+  height: 70%;
+}
+body[data-stops=true] #preMatch #teamNumber {
+  top: 1vh;
+  font-size: 30vh;
+  line-height: 34vh;
+}
+body[data-stops=true] #preMatch .databar {
+  bottom: 2vh;
+  height: 12vh;
+  line-height: 12vh;
+  font-size: 7vh;
+}
+body[data-stops=true] #preMatch sub {
+  font-size: 3vh;
+}
+body[data-stops=true] #playoffAllianceInfo {
+  display: none;
+}
+body[data-stops=true] #inMatch .datapoint,
+body[data-stops=true] #inMatch #timeRemaining {
+  height: 38vh;
+  margin-top: -19vh;
+  font-size: 38vh;
+  line-height: 38vh;
 }
