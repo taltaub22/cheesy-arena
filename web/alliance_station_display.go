@@ -6,14 +6,18 @@
 package web
 
 import (
+	"fmt"
 	"github.com/Team254/cheesy-arena/model"
 	"github.com/Team254/cheesy-arena/websocket"
+	"io"
+	"log"
 	"net/http"
 )
 
-// Renders the team number and status display shown above each alliance station.
+// Renders the team number and status display shown above each alliance station. If the "stops" option is enabled, the
+// display also shows touch buttons that let the team E-stop or A-stop its own station.
 func (web *Web) allianceStationDisplayHandler(w http.ResponseWriter, r *http.Request) {
-	if !web.enforceDisplayConfiguration(w, r, map[string]string{"station": "R1"}) {
+	if !web.enforceDisplayConfiguration(w, r, map[string]string{"station": "R1", "stops": "false"}) {
 		return
 	}
 
@@ -49,8 +53,8 @@ func (web *Web) allianceStationDisplayWebsocketHandler(w http.ResponseWriter, r 
 	}
 	defer closeWebsocket(ws)
 
-	// Subscribe the websocket to the notifiers whose messages will be passed on to the client.
-	ws.HandleNotifiers(
+	// Subscribe the websocket to the notifiers whose messages will be passed on to the client, in a separate goroutine.
+	go ws.HandleNotifiers(
 		display.Notifier,
 		web.arena.MatchTimingNotifier,
 		web.arena.AllianceStationDisplayModeNotifier,
@@ -60,4 +64,37 @@ func (web *Web) allianceStationDisplayWebsocketHandler(w http.ResponseWriter, r 
 		web.arena.RealtimeScoreNotifier,
 		web.arena.ReloadDisplaysNotifier,
 	)
+
+	// Loop, waiting for stop commands and responding to them, until the client closes the connection. The station is
+	// always taken from the display's own configuration, so a display can only ever stop its own station.
+	for {
+		messageType, _, err := ws.Read()
+		if err != nil {
+			if err == io.EOF {
+				// Client has closed the connection; nothing to do here.
+				return
+			}
+			log.Println(err)
+			return
+		}
+
+		switch messageType {
+		case "eStop", "aStop":
+			if display.DisplayConfiguration.Configuration["stops"] != "true" {
+				writeWebsocketError(ws, "Stop buttons are not enabled for this display.")
+				continue
+			}
+			station := display.DisplayConfiguration.Configuration["station"]
+			if messageType == "eStop" {
+				err = web.arena.EStop(station)
+			} else {
+				err = web.arena.AStop(station)
+			}
+			if err != nil {
+				writeWebsocketError(ws, err.Error())
+			}
+		default:
+			writeWebsocketError(ws, fmt.Sprintf("Invalid message type '%s'.", messageType))
+		}
+	}
 }

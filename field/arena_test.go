@@ -236,6 +236,30 @@ func TestArenaMatchFlow(t *testing.T) {
 	assert.Equal(t, false, arena.AllianceStations["R1"].EStop)
 }
 
+func TestArenaAStop(t *testing.T) {
+	arena := setupTestArena(t)
+
+	err := arena.AStop("R1")
+	if assert.NotNil(t, err) {
+		assert.Contains(t, err.Error(), "cannot A-stop robot when")
+	}
+	assert.Equal(t, false, arena.AllianceStations["R1"].AStop)
+
+	arena.MatchState = AutoPeriod
+	assert.Nil(t, arena.AStop("R1"))
+	assert.Equal(t, true, arena.AllianceStations["R1"].AStop)
+	assert.Equal(t, false, arena.AllianceStations["R2"].AStop)
+	assert.NotNil(t, arena.AStop("R4"))
+
+	// The A-stop stays latched through the autonomous period and is released afterwards.
+	arena.handleTeamStop("R1", false, false)
+	assert.Equal(t, true, arena.AllianceStations["R1"].AStop)
+	arena.MatchState = TeleopPeriod
+	arena.handleTeamStop("R1", false, false)
+	assert.Equal(t, false, arena.AllianceStations["R1"].AStop)
+	assert.NotNil(t, arena.AStop("R1"))
+}
+
 func TestArenaStateEnforcement(t *testing.T) {
 	arena := setupTestArena(t)
 

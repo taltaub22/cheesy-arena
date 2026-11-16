@@ -99,6 +99,12 @@ var handleArenaStatus = function (data) {
     clearInterval(blinkInterval);
     blinkInterval = null;
   }
+
+  // Show the latched state on the stop buttons, if enabled.
+  if (stationStatus) {
+    $("#eStopButton").prop("disabled", stationStatus.EStop).text(stationStatus.EStop ? "E-STOPPED" : "E-STOP");
+    $("#aStopButton").prop("disabled", stationStatus.AStop).text(stationStatus.AStop ? "A-STOPPED" : "A-STOP");
+  }
 };
 
 // Handles a websocket message to update the match time countdown.
@@ -132,6 +138,17 @@ $(function () {
   // Read the configuration for this display from the URL query string.
   var urlParams = new URLSearchParams(window.location.search);
   station = urlParams.get("station");
+
+  // Show the stop buttons only if this display has been configured with them.
+  if (urlParams.get("stops") === "true") {
+    $("body").attr("data-stops", "true");
+    $("#eStopButton").on("click", function () {
+      websocket.send("eStop", null);
+    });
+    $("#aStopButton").on("click", function () {
+      websocket.send("aStop", null);
+    });
+  }
 
   // Set up the websocket back to the server.
   websocket = new CheesyWebsocket("/displays/alliance_station/websocket", {
