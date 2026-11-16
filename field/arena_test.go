@@ -4,6 +4,7 @@
 package field
 
 import (
+	"fmt"
 	"github.com/Team254/cheesy-arena/game"
 	"github.com/Team254/cheesy-arena/led"
 	"github.com/Team254/cheesy-arena/model"
@@ -258,6 +259,50 @@ func TestArenaAStop(t *testing.T) {
 	arena.handleTeamStop("R1", false, false)
 	assert.Equal(t, false, arena.AllianceStations["R1"].AStop)
 	assert.NotNil(t, arena.AStop("R1"))
+}
+
+func TestSoftwareStopsAreReleased(t *testing.T) {
+	for _, plcEnabled := range []bool{true, false} {
+		t.Run(fmt.Sprintf("plcEnabled=%v", plcEnabled), func(t *testing.T) {
+			arena := setupTestArena(t)
+			var plc FakePlc
+			plc.isEnabled = plcEnabled
+			plc.ftaReady = true
+			arena.Plc = &plc
+			for _, allianceStation := range arena.AllianceStations {
+				allianceStation.Bypass = true
+			}
+			assert.Nil(t, arena.StartMatch())
+			arena.Update()
+			assert.Equal(t, AutoPeriod, arena.MatchState)
+
+			// Both stops stay latched while the autonomous period is running.
+			assert.Nil(t, arena.AStop("R1"))
+			assert.Nil(t, arena.EStop("B1"))
+			arena.Update()
+			assert.True(t, arena.AllianceStations["R1"].AStop)
+			assert.True(t, arena.AllianceStations["B1"].EStop)
+
+			// The A-stop is released as soon as the autonomous period ends; the E-stop is not.
+			arena.MatchStartTime = time.Now().Add(-game.GetDurationToAutoEnd())
+			arena.Update()
+			assert.Equal(t, PausePeriod, arena.MatchState)
+			assert.False(t, arena.AllianceStations["R1"].AStop)
+			assert.True(t, arena.AllianceStations["B1"].EStop)
+
+			arena.MatchStartTime = time.Now().Add(-game.GetDurationToTeleopStart())
+			arena.Update()
+			assert.Equal(t, TeleopPeriod, arena.MatchState)
+			assert.False(t, arena.AllianceStations["R1"].AStop)
+			assert.True(t, arena.AllianceStations["B1"].EStop)
+
+			// The E-stop is released when the match ends.
+			arena.MatchStartTime = time.Now().Add(-game.GetDurationToTeleopEnd())
+			arena.Update()
+			assert.Equal(t, PostMatch, arena.MatchState)
+			assert.False(t, arena.AllianceStations["B1"].EStop)
+		})
+	}
 }
 
 func TestArenaStateEnforcement(t *testing.T) {
