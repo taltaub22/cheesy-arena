@@ -175,9 +175,31 @@ body[data-position=right] #inMatch #blueScore {
   font-size: 50px;
 }
 
-/* Optional touch buttons for letting the team stop its own robot (enabled with the "stops" display option). */
+/* Team-facing tablet (enabled with the "stops" display option): the team number on an alliance-colored bar, and two
+   very large touch buttons that let the team E-stop or A-stop its own robot. */
 #stopButtons {
   display: none;
+}
+body[data-stops=true] #match {
+  height: 22%;
+  color: #fff;
+}
+body[data-stops=true][data-alliance=R] #match {
+  background-color: #d00;
+}
+body[data-stops=true][data-alliance=B] #match {
+  background-color: #00c;
+}
+body[data-stops=true] #preMatch {
+  display: block;
+}
+body[data-stops=true] #inMatch, body[data-stops=true] #preMatch .databar, body[data-stops=true] #playoffAllianceInfo {
+  display: none;
+}
+body[data-stops=true] #preMatch #teamNumber {
+  top: 0;
+  font-size: 20vh;
+  line-height: 22vh;
 }
 body[data-stops=true] #stopButtons {
   display: flex;
@@ -185,22 +207,22 @@ body[data-stops=true] #stopButtons {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 30%;
-  gap: 4%;
-  padding: 0 2% 2% 2%;
+  height: 78%;
+  gap: 2vw;
+  padding: 2vw;
   z-index: 10;
 }
 #stopButtons button {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   border: 0;
-  border-radius: 12px;
+  border-radius: 3vh;
   font-family: inherit;
-  font-size: 8vh;
+  font-size: 12vh;
   color: #fff;
   touch-action: manipulation;
 }
 #stopButtons #eStopButton {
-  flex: 2;
   background-color: #c00;
 }
 #stopButtons #aStopButton {
@@ -210,37 +232,6 @@ body[data-stops=true] #stopButtons {
   filter: brightness(1.4);
 }
 #stopButtons button:disabled {
-  background-color: #222;
-  color: #f66;
-  border: 0.8vh solid #f66;
-}
-
-/* With the stop buttons shown, the rest of the display uses the top 70% of the screen and scales with its height, so
-   that the team name and the match clock are not hidden behind the buttons on a tablet. */
-body[data-stops=true] #match {
-  height: 70%;
-}
-body[data-stops=true] #preMatch #teamNumber {
-  top: 1vh;
-  font-size: 30vh;
-  line-height: 34vh;
-}
-body[data-stops=true] #preMatch .databar {
-  bottom: 2vh;
-  height: 12vh;
-  line-height: 12vh;
-  font-size: 7vh;
-}
-body[data-stops=true] #preMatch sub {
-  font-size: 3vh;
-}
-body[data-stops=true] #playoffAllianceInfo {
-  display: none;
-}
-body[data-stops=true] #inMatch .datapoint,
-body[data-stops=true] #inMatch #timeRemaining {
-  height: 38vh;
-  margin-top: -19vh;
-  font-size: 38vh;
-  line-height: 38vh;
+  border: 1.5vh solid #fff;
+  filter: brightness(0.7);
 }
