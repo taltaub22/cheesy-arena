@@ -1285,6 +1285,11 @@ func (arena *Arena) handleAutoWinner() {
 // Updates the score given new input information from the field PLC, and actuates PLC outputs accordingly.
 func (arena *Arena) handlePlcInputOutput() {
 	if !arena.Plc.IsEnabled() {
+		// Without a PLC there are no physical stop inputs, but stops can still be latched in software (referee panel,
+		// alliance station tablets), so release them at the same points as when a PLC is present.
+		for station := range arena.AllianceStations {
+			arena.handleTeamStop(station, false, false)
+		}
 		return
 	}
 
