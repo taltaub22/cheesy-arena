@@ -118,3 +118,47 @@ body[data-alliance=B] #teamBar {
   background-color: #555;
   color: #999;
 }
+
+/* Full-width banners over the top of the buttons, for a lost connection or a display set up for an invalid station. */
+.statusBanner {
+  position: fixed;
+  top: 22%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  padding: 2vh 2vw;
+  background-color: #ff0;
+  color: #000;
+  font-size: 8vh;
+  line-height: 10vh;
+  text-align: center;
+}
+#invalidStation {
+  font-size: 5vh;
+  line-height: 7vh;
+}
+/* While disconnected, or on a display set up for an invalid station, the buttons are greyed out like unavailable ones,
+   since presses can't reach the field. */
+body[data-connected=false] #stopButtons button, body[data-station-valid=false] #stopButtons button {
+  background-color: #555;
+  color: #999;
+  border: 0;
+  filter: none;
+}
+
+/* Brief, non-blocking error message from the server, so that a blocking alert never keeps the buttons from working. */
+#errorMessage {
+  position: fixed;
+  left: 10vw;
+  right: 10vw;
+  bottom: 4vh;
+  z-index: 10;
+  padding: 1.5vh 2vw;
+  border-radius: 2vh;
+  background-color: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  font-family: sans-serif;
+  font-size: 3.5vh;
+  text-align: center;
+  pointer-events: none;
+}

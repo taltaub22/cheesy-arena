@@ -26,9 +26,14 @@ func (web *Web) teamEStopDisplayHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// An invalid station still gets the page, so that the display can be reconfigured remotely, but the page shows that
+	// it isn't usable and the websocket rejects any stop commands from it.
+	station := r.URL.Query().Get("station")
 	data := struct {
 		*model.EventSettings
-	}{web.arena.EventSettings}
+		Station      string
+		StationValid bool
+	}{web.arena.EventSettings, station, web.isTeamStation(station)}
 	err = template.ExecuteTemplate(w, "team_estop_display.html", data)
 	if err != nil {
 		handleWebErr(w, err)
@@ -44,6 +49,13 @@ func (web *Web) teamEStopDisplayWebsocketHandler(w http.ResponseWriter, r *http.
 		return
 	}
 	defer web.arena.MarkDisplayDisconnected(display.DisplayConfiguration.Id)
+
+	// Read the station once, from the same query string that the display was registered with, rather than from the
+	// shared display registry on every message; a duplicate display ID or a configuration edit could otherwise make this
+	// display stop a different station than the one it shows. A configuration edit reloads the display, which then
+	// reconnects with its new station.
+	station := r.URL.Query().Get("station")
+	stationValid := web.isTeamStation(station)
 
 	ws, err := websocket.NewWebsocket(w, r)
 	if err != nil {
@@ -64,7 +76,7 @@ func (web *Web) teamEStopDisplayWebsocketHandler(w http.ResponseWriter, r *http.
 	)
 
 	// Loop, waiting for stop commands and responding to them, until the client closes the connection. The station is
-	// always taken from the display's own configuration, so a display can only ever stop its own station.
+	// always the one this display connected with, so a display can only ever stop its own station.
 	for {
 		messageType, _, err := ws.Read()
 		if err != nil {
@@ -76,14 +88,17 @@ func (web *Web) teamEStopDisplayWebsocketHandler(w http.ResponseWriter, r *http.
 			return
 		}
 
-		station := display.DisplayConfiguration.Configuration["station"]
 		switch messageType {
-		case "eStop":
-			err = web.arena.EStop(station)
-		case "aStop":
-			err = web.arena.AStop(station)
-		case "aStopRelease":
-			err = web.arena.ReleaseAStop(station)
+		case "eStop", "aStop", "aStopRelease":
+			if !stationValid {
+				err = fmt.Errorf("This display is not configured for a valid alliance station ('%s').", station)
+			} else if messageType == "eStop" {
+				err = web.arena.EStop(station)
+			} else if messageType == "aStop" {
+				err = web.arena.AStop(station)
+			} else {
+				err = web.arena.ReleaseAStop(station)
+			}
 		default:
 			err = fmt.Errorf("Invalid message type '%s'.", messageType)
 		}
@@ -91,4 +106,10 @@ func (web *Web) teamEStopDisplayWebsocketHandler(w http.ResponseWriter, r *http.
 			writeWebsocketError(ws, err.Error())
 		}
 	}
+}
+
+// Returns true if the given station is one of the six team alliance stations.
+func (web *Web) isTeamStation(station string) bool {
+	_, ok := web.arena.AllianceStations[station]
+	return ok
 }

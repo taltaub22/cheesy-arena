@@ -13,7 +13,7 @@ Team-facing display at each alliance station, with touch buttons that let the te
     <link rel="stylesheet" href="/static/css/cheesy-arena.css"/>
     <link rel="stylesheet" href="/static/css/team_estop_display.css"/>
   </head>
-  <body>
+  <body data-station-valid="{{.StationValid}}">
     <div id="teamBar">
       <div id="matchTimer" class="barBox">
         <div class="barValue" id="matchTimerValue"></div>
@@ -25,6 +25,13 @@ Team-facing display at each alliance station, with touch buttons that let the te
         <div class="barCaption" id="shiftTimerCaption">SHIFT</div>
       </div>
     </div>
+    {{if not .StationValid}}
+      <div id="invalidStation" class="statusBanner">
+        INVALID STATION '{{.Station}}' &ndash; CONFIGURE THIS DISPLAY FOR R1&ndash;R3 OR B1&ndash;B3
+      </div>
+    {{end}}
+    <div id="disconnectedBanner" class="statusBanner" style="display: none;">DISCONNECTED</div>
+    <div id="errorMessage" style="display: none;"></div>
     <div id="stopButtons">
       <button id="eStopButton" type="button">E-STOP</button>
       <button id="aStopButton" type="button">A-STOP</button>
