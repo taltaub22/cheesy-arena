@@ -24,8 +24,46 @@ body {
   height: 22%;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  gap: 2vw;
+  padding: 0 2vw;
   background-color: #333;
+}
+
+/* Boxes on either side of the team number: the match timer on the left and the Hub shift timer on the right. */
+.barBox {
+  flex: 0 0 28vw;
+  height: 17vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2vh;
+  background-color: #000;
+  color: #fff;
+}
+.barValue {
+  font-size: 10vh;
+  line-height: 11vh;
+}
+.barCaption {
+  font-size: 3.5vh;
+  line-height: 4vh;
+  white-space: nowrap;
+}
+#shiftTimer[data-shift=R] {
+  background-color: #fff;
+  color: #d00;
+}
+#shiftTimer[data-shift=B] {
+  background-color: #fff;
+  color: #00c;
+}
+#shiftTimerCaption[data-winner=R] {
+  color: #f43;
+}
+#shiftTimerCaption[data-winner=B] {
+  color: #5af;
 }
 body[data-alliance=R] #teamBar {
   background-color: #d00;

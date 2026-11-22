@@ -7,6 +7,8 @@ var websocket;
 var eStopped = false;
 var aStopped = false;
 var matchState = "";
+var matchTimeSec = 0;
+var realtimeScore = null;
 
 // Updates the stop buttons from the match state and the latched stops. The E-stop is usable only while a match is in
 // progress. The A-stop is usable before the match and during the autonomous period; an A-stop made before the match can
@@ -44,10 +46,56 @@ var handleArenaStatus = function (data) {
   }
 };
 
-// Handles a websocket message to update the match state.
+// Updates the shift box from the latest realtime score: the time left in the current Hub shift, colored for the
+// alliance whose Hub is active (or neutral when both are), and the winner of auto during the transition shift.
+var updateShiftTimer = function () {
+  var shift = "none";
+  var remainingSec = 0;
+  var caption = "SHIFT";
+  if (realtimeScore && (matchState === "AUTO_PERIOD" || matchState === "TELEOP_PERIOD")) {
+    var redRemainingSec = realtimeScore.Red.ActiveRemainingSec;
+    var blueRemainingSec = realtimeScore.Blue.ActiveRemainingSec;
+    remainingSec = Math.max(redRemainingSec, blueRemainingSec);
+    if (redRemainingSec > 0 && blueRemainingSec > 0) {
+      shift = "both";
+    } else if (redRemainingSec > 0) {
+      shift = "R";
+    } else if (blueRemainingSec > 0) {
+      shift = "B";
+    }
+
+    // The winner of auto is only decided once the teleop period starts, after the scoring grace period.
+    var transitionEndSec = matchTiming.AutoDurationSec + matchTiming.PauseDurationSec +
+      matchTiming.TransitionShiftDurationSec;
+    if (matchState === "TELEOP_PERIOD" && matchTimeSec < transitionEndSec) {
+      if (realtimeScore.Red.Score.Hub.WonAuto) {
+        caption = "RED WON AUTO";
+      } else if (realtimeScore.Blue.Score.Hub.WonAuto) {
+        caption = "BLUE WON AUTO";
+      }
+    }
+  }
+
+  $("#shiftTimer").attr("data-shift", shift);
+  $("#shiftTimerValue").text(shift === "none" ? "" : remainingSec);
+  $("#shiftTimerCaption").text(caption).attr("data-winner", caption === "SHIFT" ? "" : caption[0]);
+};
+
+// Handles a websocket message to update the match state and timer.
 var handleMatchTime = function (data) {
   matchState = matchStates[data.MatchState];
+  matchTimeSec = data.MatchTimeSec;
   updateStopButtons();
+  translateMatchTime(data, function (matchState, matchStateText, countdownSec) {
+    $("#matchTimerValue").text(getCountdownString(Math.max(countdownSec, 0)));
+  });
+  updateShiftTimer();
+};
+
+// Handles a websocket message to update the realtime score, which carries the Hub shift timing and auto winner.
+var handleRealtimeScore = function (data) {
+  realtimeScore = data;
+  updateShiftTimer();
 };
 
 $(function () {
@@ -77,6 +125,9 @@ $(function () {
     },
     matchTiming: function (event) {
       handleMatchTiming(event.data);
+    },
+    realtimeScore: function (event) {
+      handleRealtimeScore(event.data);
     }
   });
 });

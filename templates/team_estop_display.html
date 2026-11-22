@@ -15,7 +15,15 @@ Team-facing display at each alliance station, with touch buttons that let the te
   </head>
   <body>
     <div id="teamBar">
+      <div id="matchTimer" class="barBox">
+        <div class="barValue" id="matchTimerValue"></div>
+        <div class="barCaption">MATCH</div>
+      </div>
       <div id="teamNumber"></div>
+      <div id="shiftTimer" class="barBox" data-shift="none">
+        <div class="barValue" id="shiftTimerValue"></div>
+        <div class="barCaption" id="shiftTimerCaption">SHIFT</div>
+      </div>
     </div>
     <div id="stopButtons">
       <button id="eStopButton" type="button">E-STOP</button>

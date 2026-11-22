@@ -59,6 +59,7 @@ func (web *Web) teamEStopDisplayWebsocketHandler(w http.ResponseWriter, r *http.
 		web.arena.ArenaStatusNotifier,
 		web.arena.MatchLoadNotifier,
 		web.arena.MatchTimeNotifier,
+		web.arena.RealtimeScoreNotifier,
 		web.arena.ReloadDisplaysNotifier,
 	)
 

@@ -44,6 +44,7 @@ func TestTeamEStopDisplayWebsocket(t *testing.T) {
 	readWebsocketType(t, ws, "arenaStatus")
 	readWebsocketType(t, ws, "matchLoad")
 	readWebsocketType(t, ws, "matchTime")
+	readWebsocketType(t, ws, "realtimeScore")
 
 	// Before the match, the E-stop is rejected and the A-stop can be made and released.
 	ws.Write("eStop", nil)
