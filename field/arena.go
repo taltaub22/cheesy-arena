@@ -120,6 +120,7 @@ type AllianceStation struct {
 	Team                 *model.Team
 	WifiStatus           network.TeamWifiStatus
 	aStopReset           bool
+	preMatchAStop        bool
 	GameData             string
 	TeamMismatch         bool
 	MoveToStation        string
@@ -982,6 +983,12 @@ func (arena *Arena) assignTeam(teamId int, station string) error {
 
 	// Force the A-stop to be reset by the new team if it is already pressed (if the PLC is enabled).
 	arena.AllianceStations[station].aStopReset = !arena.Plc.IsEnabled()
+
+	// An A-stop made before the match belongs to the team that made it, so don't carry it over to a different team.
+	if currentTeam := arena.AllianceStations[station].Team; currentTeam == nil || currentTeam.Id != teamId {
+		arena.AllianceStations[station].AStop = false
+		arena.AllianceStations[station].preMatchAStop = false
+	}
 	arena.AllianceStations[station].TeamMismatch = false
 	arena.AllianceStations[station].MoveToStation = ""
 
@@ -1442,16 +1449,34 @@ func (arena *Arena) EStop(station string) error {
 	return nil
 }
 
-// Latches the autonomous stop for the given alliance station during the autonomous period. The latch is released by
-// handleTeamStop once the autonomous period is over.
+// Latches the autonomous stop for the given alliance station before the match or during the autonomous period. The
+// latch is released by handleTeamStop once the autonomous period is over, so that a robot A-stopped before the match
+// stays disabled for all of the autonomous period.
 func (arena *Arena) AStop(station string) error {
-	if arena.MatchState != AutoPeriod {
-		return fmt.Errorf("cannot A-stop robot when the autonomous period is not in progress")
+	if arena.MatchState != PreMatch && arena.MatchState != StartMatch && arena.MatchState != AutoPeriod {
+		return fmt.Errorf("cannot A-stop robot after the autonomous period")
 	}
 	if _, ok := arena.AllianceStations[station]; !ok {
 		return fmt.Errorf("Invalid alliance station '%s'.", station)
 	}
 	arena.AllianceStations[station].AStop = true
+	if arena.MatchState != AutoPeriod {
+		arena.AllianceStations[station].preMatchAStop = true
+	}
+	arena.ArenaStatusNotifier.Notify()
+	return nil
+}
+
+// Releases an A-stop that was latched in software before the match, so that a team can undo it before the match starts.
+func (arena *Arena) ReleaseAStop(station string) error {
+	if arena.MatchState != PreMatch {
+		return fmt.Errorf("cannot release A-stop once the match has started")
+	}
+	if _, ok := arena.AllianceStations[station]; !ok {
+		return fmt.Errorf("Invalid alliance station '%s'.", station)
+	}
+	arena.AllianceStations[station].AStop = false
+	arena.AllianceStations[station].preMatchAStop = false
 	arena.ArenaStatusNotifier.Notify()
 	return nil
 }
@@ -1476,9 +1501,12 @@ func (arena *Arena) handleTeamStop(station string, eStopState, aStopState bool) 
 	if aStopState {
 		allianceStation.AStop = true
 	} else if arena.MatchState != AutoPeriod {
-		// Keep the A-stop latched until the autonomous period is over.
-		allianceStation.AStop = false
+		// Keep the A-stop latched until the autonomous period is over, including one made in software before the match.
 		allianceStation.aStopReset = true
+		if !allianceStation.preMatchAStop || arena.MatchState != PreMatch && arena.MatchState != StartMatch {
+			allianceStation.AStop = false
+			allianceStation.preMatchAStop = false
+		}
 	}
 }
 
