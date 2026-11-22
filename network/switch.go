@@ -43,9 +43,10 @@ const (
 var stationVlans = [6]int{red1Vlan, red2Vlan, red3Vlan, blue1Vlan, blue2Vlan, blue3Vlan}
 
 // Configures the six alliance station networks on a UniFi gateway. Despite the historical name, this no longer talks to
-// a Cisco switch; the address is the gateway's URL and the password is "username:password" of a local UniFi OS admin.
+// a Cisco switch; the address is the gateway's URL and the username and password are those of a local UniFi OS admin.
 type Switch struct {
 	address               string
+	username              string
 	password              string
 	mutex                 sync.Mutex
 	configBackoffDuration time.Duration
@@ -78,9 +79,10 @@ type uniFiSession struct {
 	csrfToken string
 }
 
-func NewSwitch(address, password string) *Switch {
+func NewSwitch(address, username, password string) *Switch {
 	return &Switch{
 		address:               address,
+		username:              username,
 		password:              password,
 		configBackoffDuration: switchConfigBackoffDurationSec * time.Second,
 		Status:                "UNKNOWN",
@@ -248,9 +250,9 @@ func overlapsAnother(subnet string, vlan int, stationNetworks map[int]*uniFiNetw
 
 // Logs in to the gateway using the configured credentials.
 func (sw *Switch) login() (*uniFiSession, error) {
-	username, password, ok := strings.Cut(sw.password, ":")
-	if !ok || username == "" {
-		return nil, fmt.Errorf("the switch password must be in the form username:password of a UniFi OS admin")
+	username, password := sw.username, sw.password
+	if username == "" {
+		return nil, fmt.Errorf("the switch username must be set to a UniFi OS admin")
 	}
 	baseUrl := strings.TrimRight(sw.address, "/")
 	if baseUrl == "" {

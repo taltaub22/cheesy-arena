@@ -162,7 +162,7 @@ func (fake *fakeUniFi) updateCount() int {
 }
 
 func newTestSwitch(fake *fakeUniFi) *Switch {
-	sw := NewSwitch(fake.server.URL, fakeUniFiUsername+":"+fakeUniFiPassword)
+	sw := NewSwitch(fake.server.URL, fakeUniFiUsername, fakeUniFiPassword)
 	sw.configBackoffDuration = time.Millisecond
 	return sw
 }
@@ -276,7 +276,7 @@ func TestConfigureSwitchErrors(t *testing.T) {
 	fake := newFakeUniFi(t)
 
 	// Bad credentials.
-	sw := NewSwitch(fake.server.URL, fakeUniFiUsername+":wrong")
+	sw := NewSwitch(fake.server.URL, fakeUniFiUsername, "wrong")
 	err := sw.ConfigureTeamEthernet([6]*model.Team{})
 	if assert.NotNil(t, err) {
 		assert.Contains(t, err.Error(), "UniFi login failed")
@@ -284,12 +284,12 @@ func TestConfigureSwitchErrors(t *testing.T) {
 	assert.Equal(t, "ERROR", sw.Status)
 
 	// Malformed credentials and a missing address.
-	sw = NewSwitch(fake.server.URL, "nocolon")
+	sw = NewSwitch(fake.server.URL, "", "secret")
 	err = sw.ConfigureTeamEthernet([6]*model.Team{})
 	if assert.NotNil(t, err) {
-		assert.Contains(t, err.Error(), "username:password")
+		assert.Contains(t, err.Error(), "username")
 	}
-	sw = NewSwitch("", "admin:secret")
+	sw = NewSwitch("", "admin", "secret")
 	err = sw.ConfigureTeamEthernet([6]*model.Team{})
 	if assert.NotNil(t, err) {
 		assert.Contains(t, err.Error(), "address is not set")
@@ -314,13 +314,13 @@ func TestConfigureSwitchErrors(t *testing.T) {
 	assert.Equal(t, "ERROR", sw.Status)
 
 	// A gateway that cannot be reached.
-	sw = NewSwitch("https://127.0.0.1:1", "admin:secret")
+	sw = NewSwitch("https://127.0.0.1:1", "admin", "secret")
 	assert.NotNil(t, sw.ConfigureTeamEthernet([6]*model.Team{}))
 }
 
 func TestConfigureSwitchAddressWithoutScheme(t *testing.T) {
 	fake := newFakeUniFi(t)
-	sw := NewSwitch(strings.TrimPrefix(fake.server.URL, "https://"), fakeUniFiUsername+":"+fakeUniFiPassword)
+	sw := NewSwitch(strings.TrimPrefix(fake.server.URL, "https://"), fakeUniFiUsername, fakeUniFiPassword)
 	sw.configBackoffDuration = time.Millisecond
 	assert.Nil(t, sw.ConfigureTeamEthernet([6]*model.Team{{Id: 254}, nil, nil, nil, nil, nil}))
 	assertStation(t, fake, 10, "10.2.54.4/24", "10.2.54.20", "10.2.54.199")
