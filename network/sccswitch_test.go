@@ -6,15 +6,13 @@ package network
 import (
 	"bytes"
 	"fmt"
-	"io"
+	"github.com/stretchr/testify/assert"
+	"golang.org/x/crypto/ed25519"
+	"golang.org/x/crypto/ssh"
 	"net"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/assert"
-	"golang.org/x/crypto/ed25519"
-	"golang.org/x/crypto/ssh"
 )
 
 func TestConfigureSCC(t *testing.T) {
@@ -38,8 +36,8 @@ func TestConfigureSCC(t *testing.T) {
 	}
 	scc := NewSCCSwitch("127.0.0.1", username, password, upCommands, downCommands)
 	scc.port = 9150
-	scc.connectTimeoutDuration = 10 * time.Millisecond
-	scc.configTimeoutDuration = 15 * time.Millisecond
+	scc.connectTimeoutDuration = time.Second
+	scc.configTimeoutDuration = time.Second
 
 	var receivedUpCommands, receivedDownCommands []string
 
@@ -74,6 +72,7 @@ func mockSSHSwitch(t *testing.T, port int, username, password string, commands *
 		config.AddHostKey(signer)
 		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		assert.Nil(t, err)
+		defer listener.Close()
 		nConn, err := listener.Accept()
 		assert.Nil(t, err)
 		defer nConn.Close()
@@ -101,32 +100,30 @@ func mockSSHSwitch(t *testing.T, port int, username, password string, commands *
 		assert.Equal(t, "shell", req.Type)
 		req.Reply(true, nil)
 
-		// Read all data sent by the client
-		var receivedData bytes.Buffer
-		done := make(chan struct{})
+		// Read the data sent by the client until it sends the final "exit" command, as a real switch would. The client
+		// never closes its stdin, so waiting for EOF or for a fixed amount of time is unreliable.
+		received := make(chan string, 1)
 		go func() {
-			defer close(done)
+			var receivedData bytes.Buffer
 			buffer := make([]byte, 1024)
 			for {
 				n, err := channel.Read(buffer)
-				if err != nil {
-					assert.Equal(t, io.EOF, err)
+				receivedData.Write(buffer[:n])
+				if err != nil || strings.HasSuffix(receivedData.String(), "exit\n") {
 					break
 				}
-				receivedData.Write(buffer[:n])
 			}
+			received <- receivedData.String()
 		}()
 
 		select {
-		case <-done:
-			// Client closed the channel
-		case <-time.After(5 * time.Millisecond):
-			// All data should be read by now. Close the connection
-		}
-
-		*commands = strings.Split(receivedData.String(), "\n")
-		if len(*commands) > 0 && (*commands)[len(*commands)-1] == "" {
-			*commands = (*commands)[:len(*commands)-1] // Remove trailing newline
+		case data := <-received:
+			*commands = strings.Split(data, "\n")
+			if len(*commands) > 0 && (*commands)[len(*commands)-1] == "" {
+				*commands = (*commands)[:len(*commands)-1] // Remove trailing newline
+			}
+		case <-time.After(time.Second):
+			assert.Fail(t, "timed out waiting for the client to send its commands")
 		}
 
 		// Send an exit command to cleanly close the session
