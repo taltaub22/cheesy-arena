@@ -108,6 +108,7 @@ type Arena struct {
 	NextFoulId                        int
 	DriverStationUdpSocket            *net.UDPConn
 	redWonAuto                        bool
+	stopMutex                         sync.Mutex
 }
 
 type AllianceStation struct {
@@ -120,6 +121,7 @@ type AllianceStation struct {
 	Team                 *model.Team
 	WifiStatus           network.TeamWifiStatus
 	aStopReset           bool
+	PreMatchAStop        bool
 	GameData             string
 	TeamMismatch         bool
 	MoveToStation        string
@@ -541,7 +543,10 @@ func (arena *Arena) StartMatch() error {
 
 		arena.lastTeamLogTime = time.Time{}
 
+		// Hold the stop lock so that a pre-match A-stop release can't land after the match has started.
+		arena.stopMutex.Lock()
 		arena.MatchState = StartMatch
+		arena.stopMutex.Unlock()
 
 		if arena.EventSettings.NexusAutoQueueEnabled && arena.CurrentMatch.Type != model.Test {
 			go arena.NexusClient.MatchStarted(arena.CurrentMatch.LongName, arena.CurrentMatch.TypeOrder)
@@ -982,6 +987,16 @@ func (arena *Arena) assignTeam(teamId int, station string) error {
 
 	// Force the A-stop to be reset by the new team if it is already pressed (if the PLC is enabled).
 	arena.AllianceStations[station].aStopReset = !arena.Plc.IsEnabled()
+
+	// An A-stop made before the match belongs to the team that made it, so don't carry it over to a different team. A
+	// mid-match substitution keeps the A-stop so that it isn't released during the autonomous period.
+	arena.stopMutex.Lock()
+	if currentTeam := arena.AllianceStations[station].Team; isBeforeMatch(arena.MatchState) &&
+		(currentTeam == nil || currentTeam.Id != teamId) {
+		arena.AllianceStations[station].AStop = false
+		arena.AllianceStations[station].PreMatchAStop = false
+	}
+	arena.stopMutex.Unlock()
 	arena.AllianceStations[station].TeamMismatch = false
 	arena.AllianceStations[station].MoveToStation = ""
 
@@ -1437,21 +1452,67 @@ func (arena *Arena) EStop(station string) error {
 	if _, ok := arena.AllianceStations[station]; !ok {
 		return fmt.Errorf("Invalid alliance station '%s'.", station)
 	}
+	arena.stopMutex.Lock()
 	arena.AllianceStations[station].EStop = true
+	arena.stopMutex.Unlock()
 	arena.ArenaStatusNotifier.Notify()
 	return nil
 }
 
-// Latches the autonomous stop for the given alliance station during the autonomous period. The latch is released by
-// handleTeamStop once the autonomous period is over.
+// Returns true if the given match state is before the match (including during and after a timeout), when a team can
+// latch or release an A-stop in software.
+func isBeforeMatch(state MatchState) bool {
+	return state == PreMatch || state == TimeoutActive || state == PostTimeout
+}
+
+// Latches the autonomous stop for the given alliance station before the match or during the autonomous period. The
+// latch is released by handleTeamStop once the autonomous period is over, so that a robot A-stopped before the match
+// stays disabled for all of the autonomous period.
 func (arena *Arena) AStop(station string) error {
-	if arena.MatchState != AutoPeriod {
-		return fmt.Errorf("cannot A-stop robot when the autonomous period is not in progress")
-	}
 	if _, ok := arena.AllianceStations[station]; !ok {
 		return fmt.Errorf("Invalid alliance station '%s'.", station)
 	}
-	arena.AllianceStations[station].AStop = true
+	arena.stopMutex.Lock()
+	matchState := arena.MatchState
+	if !isBeforeMatch(matchState) && matchState != StartMatch && matchState != AutoPeriod {
+		arena.stopMutex.Unlock()
+		return fmt.Errorf("cannot A-stop robot after the autonomous period")
+	}
+	allianceStation := arena.AllianceStations[station]
+	if matchState != AutoPeriod {
+		// Set the latch first so that the A-stop is never seen without it.
+		allianceStation.PreMatchAStop = true
+	}
+	allianceStation.AStop = true
+	arena.stopMutex.Unlock()
+	arena.ArenaStatusNotifier.Notify()
+	return nil
+}
+
+// Releases an A-stop that was latched in software before the match, so that a team can undo it before the match starts.
+// An A-stop held by the physical button can't be released this way.
+func (arena *Arena) ReleaseAStop(station string) error {
+	if _, ok := arena.AllianceStations[station]; !ok {
+		return fmt.Errorf("Invalid alliance station '%s'.", station)
+	}
+	arena.stopMutex.Lock()
+	if !isBeforeMatch(arena.MatchState) {
+		arena.stopMutex.Unlock()
+		return fmt.Errorf("cannot release A-stop once the match has started")
+	}
+	allianceStation := arena.AllianceStations[station]
+	if !allianceStation.PreMatchAStop {
+		aStop := allianceStation.AStop
+		arena.stopMutex.Unlock()
+		if aStop {
+			return fmt.Errorf("cannot release an A-stop that is held by the physical button")
+		}
+		// Nothing to release.
+		return nil
+	}
+	allianceStation.AStop = false
+	allianceStation.PreMatchAStop = false
+	arena.stopMutex.Unlock()
 	arena.ArenaStatusNotifier.Notify()
 	return nil
 }
@@ -1466,6 +1527,8 @@ func (arena *Arena) ToggleBypass(station string) error {
 }
 
 func (arena *Arena) handleTeamStop(station string, eStopState, aStopState bool) {
+	arena.stopMutex.Lock()
+	defer arena.stopMutex.Unlock()
 	allianceStation := arena.AllianceStations[station]
 	if eStopState {
 		allianceStation.EStop = true
@@ -1476,9 +1539,14 @@ func (arena *Arena) handleTeamStop(station string, eStopState, aStopState bool) 
 	if aStopState {
 		allianceStation.AStop = true
 	} else if arena.MatchState != AutoPeriod {
-		// Keep the A-stop latched until the autonomous period is over.
-		allianceStation.AStop = false
+		// Keep the A-stop latched until the autonomous period is over, including one made in software before the match.
 		allianceStation.aStopReset = true
+		holdPreMatchAStop := allianceStation.PreMatchAStop &&
+			(isBeforeMatch(arena.MatchState) || arena.MatchState == StartMatch)
+		if !holdPreMatchAStop {
+			allianceStation.AStop = false
+			allianceStation.PreMatchAStop = false
+		}
 	}
 }
 

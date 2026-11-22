@@ -1,0 +1,46 @@
+{{/*
+Copyright 2026 Team 254. All Rights Reserved.
+
+Team-facing display at each alliance station, with touch buttons that let the team E-stop or A-stop its own robot.
+*/}}
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Team E-Stop Display - {{.EventSettings.Name}} - Cheesy Arena </title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="shortcut icon" href="/static/img/favicon.ico">
+    <link rel="stylesheet" href="/static/css/lib/bootstrap.min.css"/>
+    <link rel="stylesheet" href="/static/css/cheesy-arena.css"/>
+    <link rel="stylesheet" href="/static/css/team_estop_display.css"/>
+  </head>
+  <body data-station-valid="{{.StationValid}}">
+    <div id="teamBar">
+      <div id="matchTimer" class="barBox">
+        <div class="barValue" id="matchTimerValue"></div>
+        <div class="barCaption">MATCH</div>
+      </div>
+      <div id="teamNumber"></div>
+      <div id="shiftTimer" class="barBox" data-shift="none">
+        <div class="barValue" id="shiftTimerValue"></div>
+        <div class="barCaption" id="shiftTimerCaption">SHIFT</div>
+      </div>
+    </div>
+    {{if not .StationValid}}
+      <div id="invalidStation" class="statusBanner">
+        INVALID STATION '{{.Station}}' &ndash; CONFIGURE THIS DISPLAY FOR R1&ndash;R3 OR B1&ndash;B3
+      </div>
+    {{end}}
+    <div id="disconnectedBanner" class="statusBanner" style="display: none;">DISCONNECTED</div>
+    <div id="errorMessage" style="display: none;"></div>
+    <div id="stopButtons">
+      <button id="eStopButton" type="button">E-STOP</button>
+      <button id="aStopButton" type="button">A-STOP</button>
+    </div>
+    <script src="/static/js/lib/jquery.min.js"></script>
+    <script src="/static/js/lib/jquery.json-2.4.min.js"></script>
+    <script src="/static/js/lib/jquery.websocket-0.0.1.js"></script>
+    <script src="/static/js/cheesy-websocket.js"></script>
+    <script src="/static/js/match_timing.js"></script>
+    <script src="/static/js/team_estop_display.js"></script>
+  </body>
+</html>

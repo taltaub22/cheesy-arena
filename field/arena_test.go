@@ -240,11 +240,15 @@ func TestArenaMatchFlow(t *testing.T) {
 func TestArenaAStop(t *testing.T) {
 	arena := setupTestArena(t)
 
-	err := arena.AStop("R1")
-	if assert.NotNil(t, err) {
-		assert.Contains(t, err.Error(), "cannot A-stop robot when")
+	// A-stops are accepted before the match and during the autonomous period, but not afterwards.
+	for _, state := range []MatchState{PausePeriod, TeleopPeriod, PostMatch} {
+		arena.MatchState = state
+		err := arena.AStop("R1")
+		if assert.NotNil(t, err, state) {
+			assert.Contains(t, err.Error(), "cannot A-stop robot after")
+		}
+		assert.Equal(t, false, arena.AllianceStations["R1"].AStop)
 	}
-	assert.Equal(t, false, arena.AllianceStations["R1"].AStop)
 
 	arena.MatchState = AutoPeriod
 	assert.Nil(t, arena.AStop("R1"))
@@ -252,13 +256,258 @@ func TestArenaAStop(t *testing.T) {
 	assert.Equal(t, false, arena.AllianceStations["R2"].AStop)
 	assert.NotNil(t, arena.AStop("R4"))
 
-	// The A-stop stays latched through the autonomous period and is released afterwards.
+	// The A-stop stays latched through the autonomous period, can't be released then, and is released afterwards.
 	arena.handleTeamStop("R1", false, false)
+	assert.Equal(t, true, arena.AllianceStations["R1"].AStop)
+	assert.NotNil(t, arena.ReleaseAStop("R1"))
 	assert.Equal(t, true, arena.AllianceStations["R1"].AStop)
 	arena.MatchState = TeleopPeriod
 	arena.handleTeamStop("R1", false, false)
 	assert.Equal(t, false, arena.AllianceStations["R1"].AStop)
 	assert.NotNil(t, arena.AStop("R1"))
+}
+
+func TestArenaPreMatchAStop(t *testing.T) {
+	arena := setupTestArena(t)
+
+	// An A-stop made before the match stays latched until the match starts, and can be released until then.
+	assert.Equal(t, PreMatch, arena.MatchState)
+	assert.Nil(t, arena.AStop("R1"))
+	arena.handleTeamStop("R1", false, false)
+	assert.Equal(t, true, arena.AllianceStations["R1"].AStop)
+	assert.Nil(t, arena.ReleaseAStop("R1"))
+	assert.Equal(t, false, arena.AllianceStations["R1"].AStop)
+	arena.handleTeamStop("R1", false, false)
+	assert.Equal(t, false, arena.AllianceStations["R1"].AStop)
+	assert.NotNil(t, arena.ReleaseAStop("R4"))
+
+	// A physical A-stop that is released before the match is still released straight away.
+	arena.handleTeamStop("R2", false, true)
+	assert.Equal(t, true, arena.AllianceStations["R2"].AStop)
+	arena.handleTeamStop("R2", false, false)
+	assert.Equal(t, false, arena.AllianceStations["R2"].AStop)
+
+	// A pre-match A-stop doesn't carry over to a different team, but stays if the same team is loaded again.
+	arena.AllianceStations["R1"].Team = &model.Team{Id: 254}
+	assert.Nil(t, arena.AStop("R1"))
+	assert.Nil(t, arena.assignTeam(254, "R1"))
+	assert.Equal(t, true, arena.AllianceStations["R1"].AStop)
+	assert.Nil(t, arena.assignTeam(1114, "R1"))
+	assert.Equal(t, false, arena.AllianceStations["R1"].AStop)
+	arena.handleTeamStop("R1", false, false)
+	assert.Equal(t, false, arena.AllianceStations["R1"].AStop)
+}
+
+func TestArenaPreMatchAStopLatchesThroughAuto(t *testing.T) {
+	for _, plcEnabled := range []bool{true, false} {
+		t.Run(fmt.Sprintf("plcEnabled=%v", plcEnabled), func(t *testing.T) {
+			arena := setupTestArena(t)
+			var plc FakePlc
+			plc.isEnabled = plcEnabled
+			plc.ftaReady = true
+			arena.Plc = &plc
+			for _, allianceStation := range arena.AllianceStations {
+				allianceStation.Bypass = true
+				allianceStation.aStopReset = true
+			}
+
+			// A pre-match A-stop doesn't stop the match from starting, and stays latched through the autonomous period.
+			assert.Nil(t, arena.AStop("R1"))
+			arena.Update()
+			assert.True(t, arena.AllianceStations["R1"].AStop)
+			assert.Nil(t, arena.StartMatch())
+			arena.Update()
+			assert.Equal(t, AutoPeriod, arena.MatchState)
+			assert.True(t, arena.AllianceStations["R1"].AStop)
+			assert.NotNil(t, arena.ReleaseAStop("R1"))
+			arena.Update()
+			assert.True(t, arena.AllianceStations["R1"].AStop)
+
+			// It is released as soon as the autonomous period ends.
+			arena.MatchStartTime = time.Now().Add(-game.GetDurationToAutoEnd())
+			arena.Update()
+			assert.Equal(t, PausePeriod, arena.MatchState)
+			assert.False(t, arena.AllianceStations["R1"].AStop)
+		})
+	}
+}
+
+func TestArenaPreMatchAStopSurvivesTimeout(t *testing.T) {
+	arena := setupTestArena(t)
+	for _, allianceStation := range arena.AllianceStations {
+		allianceStation.Bypass = true
+		allianceStation.aStopReset = true
+	}
+
+	// A pre-match A-stop stays latched through a timeout and back to the pre-match state.
+	assert.Nil(t, arena.AStop("R1"))
+	timeoutDurationSec := 9
+	assert.Nil(t, arena.StartTimeout("Break 1", timeoutDurationSec))
+	arena.Update()
+	assert.Equal(t, TimeoutActive, arena.MatchState)
+	assert.True(t, arena.AllianceStations["R1"].AStop)
+	arena.MatchStartTime = time.Now().Add(-time.Duration(timeoutDurationSec) * time.Second)
+	arena.Update()
+	assert.Equal(t, PostTimeout, arena.MatchState)
+	assert.True(t, arena.AllianceStations["R1"].AStop)
+	arena.MatchStartTime = time.Now().Add(-time.Duration(timeoutDurationSec+postTimeoutSec) * time.Second)
+	arena.Update()
+	assert.Equal(t, PreMatch, arena.MatchState)
+	assert.True(t, arena.AllianceStations["R1"].AStop)
+	assert.True(t, arena.AllianceStations["R1"].PreMatchAStop)
+
+	// It then stays latched through the autonomous period and is released at the end of it.
+	assert.Nil(t, arena.StartMatch())
+	arena.Update()
+	assert.Equal(t, AutoPeriod, arena.MatchState)
+	assert.True(t, arena.AllianceStations["R1"].AStop)
+	arena.MatchStartTime = time.Now().Add(-game.GetDurationToAutoEnd())
+	arena.Update()
+	assert.Equal(t, PausePeriod, arena.MatchState)
+	assert.False(t, arena.AllianceStations["R1"].AStop)
+	assert.False(t, arena.AllianceStations["R1"].PreMatchAStop)
+}
+
+func TestArenaAStopDuringTimeout(t *testing.T) {
+	for _, state := range []MatchState{TimeoutActive, PostTimeout} {
+		t.Run(fmt.Sprintf("matchState=%d", state), func(t *testing.T) {
+			arena := setupTestArena(t)
+			arena.MatchState = state
+
+			// A-stops can be made and released in software during and after a timeout.
+			assert.Nil(t, arena.AStop("R1"))
+			arena.handleTeamStop("R1", false, false)
+			assert.True(t, arena.AllianceStations["R1"].AStop)
+			assert.True(t, arena.AllianceStations["R1"].PreMatchAStop)
+			assert.Nil(t, arena.ReleaseAStop("R1"))
+			assert.False(t, arena.AllianceStations["R1"].AStop)
+			assert.False(t, arena.AllianceStations["R1"].PreMatchAStop)
+			arena.handleTeamStop("R1", false, false)
+			assert.False(t, arena.AllianceStations["R1"].AStop)
+		})
+	}
+}
+
+func TestArenaAStopDuringStartMatch(t *testing.T) {
+	arena := setupTestArena(t)
+	for _, allianceStation := range arena.AllianceStations {
+		allianceStation.Bypass = true
+		allianceStation.aStopReset = true
+	}
+	assert.Nil(t, arena.StartMatch())
+	assert.Equal(t, StartMatch, arena.MatchState)
+
+	// An A-stop made as the match is starting is latched, can't be released, and lasts through the autonomous period.
+	assert.Nil(t, arena.AStop("R1"))
+	assert.True(t, arena.AllianceStations["R1"].PreMatchAStop)
+	arena.handleTeamStop("R1", false, false)
+	assert.True(t, arena.AllianceStations["R1"].AStop)
+	err := arena.ReleaseAStop("R1")
+	if assert.NotNil(t, err) {
+		assert.Contains(t, err.Error(), "cannot release A-stop once the match has started")
+	}
+	arena.Update()
+	assert.Equal(t, AutoPeriod, arena.MatchState)
+	assert.True(t, arena.AllianceStations["R1"].AStop)
+	arena.MatchStartTime = time.Now().Add(-game.GetDurationToAutoEnd())
+	arena.Update()
+	assert.Equal(t, PausePeriod, arena.MatchState)
+	assert.False(t, arena.AllianceStations["R1"].AStop)
+}
+
+func TestArenaReleasePhysicalAStop(t *testing.T) {
+	arena := setupTestArena(t)
+
+	// An A-stop held by the physical button can't be released in software.
+	arena.handleTeamStop("R1", false, true)
+	assert.True(t, arena.AllianceStations["R1"].AStop)
+	err := arena.ReleaseAStop("R1")
+	if assert.NotNil(t, err) {
+		assert.Contains(t, err.Error(), "held by the physical button")
+	}
+	assert.True(t, arena.AllianceStations["R1"].AStop)
+
+	// Releasing a station that isn't A-stopped is a no-op.
+	assert.Nil(t, arena.ReleaseAStop("R2"))
+	assert.False(t, arena.AllianceStations["R2"].AStop)
+}
+
+func TestArenaSubstitutionDuringAutoKeepsAStop(t *testing.T) {
+	arena := setupTestArena(t)
+	arena.Database.CreateTeam(&model.Team{Id: 254})
+	arena.Database.CreateTeam(&model.Team{Id: 1114})
+	assert.Nil(t, arena.assignTeam(254, "R1"))
+	assert.Nil(t, arena.assignTeam(254, "R2"))
+
+	// A substitution during the autonomous period doesn't release an A-stop, whether made before or during the match.
+	assert.Nil(t, arena.AStop("R1"))
+	arena.MatchState = AutoPeriod
+	assert.Nil(t, arena.AStop("R2"))
+	assert.Nil(t, arena.assignTeam(1114, "R1"))
+	assert.Nil(t, arena.assignTeam(1114, "R2"))
+	assert.True(t, arena.AllianceStations["R1"].AStop)
+	assert.True(t, arena.AllianceStations["R1"].PreMatchAStop)
+	assert.True(t, arena.AllianceStations["R2"].AStop)
+	arena.handleTeamStop("R1", false, false)
+	arena.handleTeamStop("R2", false, false)
+	assert.True(t, arena.AllianceStations["R1"].AStop)
+	assert.True(t, arena.AllianceStations["R2"].AStop)
+}
+
+func TestHandleTeamStopAStop(t *testing.T) {
+	// With the physical A-stop released, a pre-match software A-stop is held before the match and as it starts, every
+	// A-stop is held during the autonomous period, and all are released otherwise.
+	testCases := []struct {
+		matchState     MatchState
+		preMatchAStop  bool
+		wantAStop      bool
+		wantLatch      bool
+		wantAStopReset bool
+	}{
+		{PreMatch, false, false, false, true},
+		{PreMatch, true, true, true, true},
+		{StartMatch, false, false, false, true},
+		{StartMatch, true, true, true, true},
+		{AutoPeriod, false, true, false, false},
+		{AutoPeriod, true, true, true, false},
+		{PausePeriod, false, false, false, true},
+		{PausePeriod, true, false, false, true},
+		{TeleopPeriod, false, false, false, true},
+		{TeleopPeriod, true, false, false, true},
+		{PostMatch, false, false, false, true},
+		{PostMatch, true, false, false, true},
+		{TimeoutActive, false, false, false, true},
+		{TimeoutActive, true, true, true, true},
+		{PostTimeout, false, false, false, true},
+		{PostTimeout, true, true, true, true},
+	}
+	for _, physicalAStop := range []bool{false, true} {
+		for _, testCase := range testCases {
+			name := fmt.Sprintf(
+				"matchState=%d/preMatchAStop=%v/physical=%v", testCase.matchState, testCase.preMatchAStop, physicalAStop,
+			)
+			t.Run(name, func(t *testing.T) {
+				arena := setupTestArena(t)
+				arena.MatchState = testCase.matchState
+				allianceStation := arena.AllianceStations["R1"]
+				allianceStation.AStop = true
+				allianceStation.PreMatchAStop = testCase.preMatchAStop
+				allianceStation.aStopReset = false
+
+				arena.handleTeamStop("R1", false, physicalAStop)
+				if physicalAStop {
+					// A held physical A-stop always stops the robot and leaves the latch and reset state alone.
+					assert.True(t, allianceStation.AStop)
+					assert.Equal(t, testCase.preMatchAStop, allianceStation.PreMatchAStop)
+					assert.False(t, allianceStation.aStopReset)
+				} else {
+					assert.Equal(t, testCase.wantAStop, allianceStation.AStop)
+					assert.Equal(t, testCase.wantLatch, allianceStation.PreMatchAStop)
+					assert.Equal(t, testCase.wantAStopReset, allianceStation.aStopReset)
+				}
+			})
+		}
+	}
 }
 
 func TestSoftwareStopsAreReleased(t *testing.T) {

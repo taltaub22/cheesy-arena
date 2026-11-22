@@ -41,6 +41,7 @@ const (
 	YouTubeStreamDisplay
 	WebpageDisplay
 	UnpickedDisplay
+	TeamEStopDisplay
 )
 
 var DisplayTypeNames = map[DisplayType]string{
@@ -59,6 +60,7 @@ var DisplayTypeNames = map[DisplayType]string{
 	YouTubeStreamDisplay:   "YouTube Stream",
 	WebpageDisplay:         "Web Page",
 	UnpickedDisplay:        "Unpicked Teams",
+	TeamEStopDisplay:       "Team E-Stop",
 }
 
 var displayTypePaths = map[DisplayType]string{
@@ -77,6 +79,7 @@ var displayTypePaths = map[DisplayType]string{
 	YouTubeStreamDisplay:   "/displays/youtube",
 	WebpageDisplay:         "/displays/webpage",
 	UnpickedDisplay:        "/displays/unpicked",
+	TeamEStopDisplay:       "/displays/team_estop",
 }
 
 var displayRegistryMutex sync.Mutex
