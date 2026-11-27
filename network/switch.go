@@ -14,7 +14,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/cookiejar"
 	"strconv"
 	"strings"
 	"sync"
@@ -43,11 +42,10 @@ const (
 var stationVlans = [6]int{red1Vlan, red2Vlan, red3Vlan, blue1Vlan, blue2Vlan, blue3Vlan}
 
 // Configures the six alliance station networks on a UniFi gateway. Despite the historical name, this no longer talks to
-// a Cisco switch; the address is the gateway's URL and the username and password are those of a local UniFi OS admin.
+// a Cisco switch; the address is the gateway's URL and the API key is one created in the UniFi Network application.
 type Switch struct {
 	address               string
-	username              string
-	password              string
+	apiKey                string
 	mutex                 sync.Mutex
 	configBackoffDuration time.Duration
 	Status                string
@@ -72,18 +70,17 @@ type uniFiNetworkTarget struct {
 	dhcpStop    string
 }
 
-// An authenticated session with the UniFi OS gateway.
+// A client for the UniFi OS gateway that authenticates each request with an API key.
 type uniFiSession struct {
-	baseUrl   string
-	client    *http.Client
-	csrfToken string
+	baseUrl string
+	apiKey  string
+	client  *http.Client
 }
 
-func NewSwitch(address, username, password string) *Switch {
+func NewSwitch(address, apiKey string) *Switch {
 	return &Switch{
 		address:               address,
-		username:              username,
-		password:              password,
+		apiKey:                apiKey,
 		configBackoffDuration: switchConfigBackoffDurationSec * time.Second,
 		Status:                "UNKNOWN",
 	}
@@ -111,7 +108,7 @@ func (sw *Switch) ConfigureTeamEthernet(teams [6]*model.Team) error {
 	return nil
 }
 
-// Computes the desired state of each station network, logs in to the gateway and applies any differences. Returns
+// Computes the desired state of each station network, connects to the gateway and applies any differences. Returns
 // whether anything was changed.
 func (sw *Switch) configure(teams [6]*model.Team) (bool, error) {
 	// Fail early if the same team is in two stations, since that would require two networks with the same subnet.
@@ -131,7 +128,7 @@ func (sw *Switch) configure(teams [6]*model.Team) (bool, error) {
 		targets[vlan] = teamNetworkTarget(teams[i], vlan)
 	}
 
-	session, err := sw.login()
+	session, err := sw.newSession()
 	if err != nil {
 		return false, err
 	}
@@ -248,11 +245,10 @@ func overlapsAnother(subnet string, vlan int, stationNetworks map[int]*uniFiNetw
 	return false
 }
 
-// Logs in to the gateway using the configured credentials.
-func (sw *Switch) login() (*uniFiSession, error) {
-	username, password := sw.username, sw.password
-	if username == "" {
-		return nil, fmt.Errorf("the switch username must be set to a UniFi OS admin")
+// Creates a client for the gateway using the configured API key.
+func (sw *Switch) newSession() (*uniFiSession, error) {
+	if sw.apiKey == "" {
+		return nil, fmt.Errorf("the switch API key is not set; create one in the UniFi Network application")
 	}
 	baseUrl := strings.TrimRight(sw.address, "/")
 	if baseUrl == "" {
@@ -262,28 +258,15 @@ func (sw *Switch) login() (*uniFiSession, error) {
 		baseUrl = "https://" + baseUrl
 	}
 
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		return nil, err
-	}
-	session := &uniFiSession{
+	return &uniFiSession{
 		baseUrl: baseUrl,
+		apiKey:  sw.apiKey,
 		client: &http.Client{
-			Jar:     jar,
 			Timeout: switchHttpTimeoutSec * time.Second,
 			// The gateway uses a self-signed certificate by default, and it is only reachable on the local network.
 			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
 		},
-	}
-
-	body, err := json.Marshal(map[string]any{"username": username, "password": password, "rememberMe": false})
-	if err != nil {
-		return nil, err
-	}
-	if _, err = session.request("POST", "/api/auth/login", body); err != nil {
-		return nil, fmt.Errorf("UniFi login failed: %v", err)
-	}
-	return session, nil
+	}, nil
 }
 
 // Sends a request to the gateway and returns the response body. Fails on any status other than 200.
@@ -293,11 +276,9 @@ func (session *uniFiSession) request(method, path string, body []byte) ([]byte, 
 		return nil, err
 	}
 	request.Header.Set("Accept", "application/json")
+	request.Header.Set("X-API-KEY", session.apiKey)
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
-	}
-	if session.csrfToken != "" {
-		request.Header.Set("X-CSRF-Token", session.csrfToken)
 	}
 
 	response, err := session.client.Do(request)
@@ -305,13 +286,6 @@ func (session *uniFiSession) request(method, path string, body []byte) ([]byte, 
 		return nil, err
 	}
 	defer response.Body.Close()
-
-	// The gateway hands out the CSRF token at login and may refresh it later.
-	if token := response.Header.Get("X-Updated-CSRF-Token"); token != "" {
-		session.csrfToken = token
-	} else if token = response.Header.Get("X-CSRF-Token"); token != "" {
-		session.csrfToken = token
-	}
 
 	responseBody, err := io.ReadAll(response.Body)
 	if err != nil {

@@ -17,20 +17,15 @@ import (
 	"time"
 )
 
-const (
-	fakeUniFiUsername = "admin"
-	fakeUniFiPassword = "secret"
-	fakeUniFiCsrf     = "csrf-token-1"
-)
+const fakeUniFiApiKey = "api-key-1"
 
-// A fake UniFi OS gateway that implements just enough of the login and network configuration APIs to test against. It
+// A fake UniFi OS gateway that implements just enough of the network configuration API to test against. It
 // rejects overlapping subnets like the real one does.
 type fakeUniFi struct {
 	server   *httptest.Server
 	mutex    sync.Mutex
 	networks []map[string]any
 	updates  []string // The name of each network, in the order they were updated.
-	logins   int
 }
 
 func newFakeUniFi(t *testing.T) *fakeUniFi {
@@ -59,7 +54,6 @@ func newFakeUniFi(t *testing.T) *fakeUniFi {
 	)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/auth/login", fake.handleLogin)
 	mux.HandleFunc("GET /proxy/network/api/s/default/rest/networkconf", fake.handleList)
 	mux.HandleFunc("PUT /proxy/network/api/s/default/rest/networkconf/{id}", fake.handleUpdate)
 	fake.server = httptest.NewTLSServer(mux)
@@ -67,28 +61,9 @@ func newFakeUniFi(t *testing.T) *fakeUniFi {
 	return fake
 }
 
-func (fake *fakeUniFi) handleLogin(w http.ResponseWriter, r *http.Request) {
-	fake.mutex.Lock()
-	defer fake.mutex.Unlock()
-	var credentials map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&credentials); err != nil ||
-		credentials["username"] != fakeUniFiUsername || credentials["password"] != fakeUniFiPassword {
-		http.Error(w, `{"code":"AUTHENTICATION_FAILED_INVALID_CREDENTIALS"}`, http.StatusBadRequest)
-		return
-	}
-	fake.logins++
-	http.SetCookie(w, &http.Cookie{Name: "TOKEN", Value: "session", Path: "/"})
-	w.Header().Set("X-CSRF-Token", fakeUniFiCsrf)
-	w.Write([]byte("{}"))
-}
-
-func (fake *fakeUniFi) authorized(w http.ResponseWriter, r *http.Request, needCsrf bool) bool {
-	if cookie, err := r.Cookie("TOKEN"); err != nil || cookie.Value != "session" {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return false
-	}
-	if needCsrf && r.Header.Get("X-CSRF-Token") != fakeUniFiCsrf {
-		http.Error(w, "bad csrf token", http.StatusForbidden)
+func (fake *fakeUniFi) authorized(w http.ResponseWriter, r *http.Request) bool {
+	if r.Header.Get("X-API-KEY") != fakeUniFiApiKey {
+		http.Error(w, `{"error":{"code":401,"message":"Unauthorized"}}`, http.StatusUnauthorized)
 		return false
 	}
 	return true
@@ -97,7 +72,7 @@ func (fake *fakeUniFi) authorized(w http.ResponseWriter, r *http.Request, needCs
 func (fake *fakeUniFi) handleList(w http.ResponseWriter, r *http.Request) {
 	fake.mutex.Lock()
 	defer fake.mutex.Unlock()
-	if !fake.authorized(w, r, false) {
+	if !fake.authorized(w, r) {
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]any{"meta": map[string]any{"rc": "ok"}, "data": fake.networks})
@@ -106,7 +81,7 @@ func (fake *fakeUniFi) handleList(w http.ResponseWriter, r *http.Request) {
 func (fake *fakeUniFi) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	fake.mutex.Lock()
 	defer fake.mutex.Unlock()
-	if !fake.authorized(w, r, true) {
+	if !fake.authorized(w, r) {
 		return
 	}
 	var updated map[string]any
@@ -162,7 +137,7 @@ func (fake *fakeUniFi) updateCount() int {
 }
 
 func newTestSwitch(fake *fakeUniFi) *Switch {
-	sw := NewSwitch(fake.server.URL, fakeUniFiUsername, fakeUniFiPassword)
+	sw := NewSwitch(fake.server.URL, fakeUniFiApiKey)
 	sw.configBackoffDuration = time.Millisecond
 	return sw
 }
@@ -275,21 +250,22 @@ func TestConfigureSwitchRotationAndSwap(t *testing.T) {
 func TestConfigureSwitchErrors(t *testing.T) {
 	fake := newFakeUniFi(t)
 
-	// Bad credentials.
-	sw := NewSwitch(fake.server.URL, fakeUniFiUsername, "wrong")
+	// A wrong API key.
+	sw := NewSwitch(fake.server.URL, "wrong")
 	err := sw.ConfigureTeamEthernet([6]*model.Team{})
 	if assert.NotNil(t, err) {
-		assert.Contains(t, err.Error(), "UniFi login failed")
+		assert.Contains(t, err.Error(), "status 401")
 	}
 	assert.Equal(t, "ERROR", sw.Status)
+	assert.Equal(t, 0, fake.updateCount())
 
-	// Malformed credentials and a missing address.
-	sw = NewSwitch(fake.server.URL, "", "secret")
+	// A missing API key and a missing address.
+	sw = NewSwitch(fake.server.URL, "")
 	err = sw.ConfigureTeamEthernet([6]*model.Team{})
 	if assert.NotNil(t, err) {
-		assert.Contains(t, err.Error(), "username")
+		assert.Contains(t, err.Error(), "API key is not set")
 	}
-	sw = NewSwitch("", "admin", "secret")
+	sw = NewSwitch("", fakeUniFiApiKey)
 	err = sw.ConfigureTeamEthernet([6]*model.Team{})
 	if assert.NotNil(t, err) {
 		assert.Contains(t, err.Error(), "address is not set")
@@ -314,13 +290,13 @@ func TestConfigureSwitchErrors(t *testing.T) {
 	assert.Equal(t, "ERROR", sw.Status)
 
 	// A gateway that cannot be reached.
-	sw = NewSwitch("https://127.0.0.1:1", "admin", "secret")
+	sw = NewSwitch("https://127.0.0.1:1", fakeUniFiApiKey)
 	assert.NotNil(t, sw.ConfigureTeamEthernet([6]*model.Team{}))
 }
 
 func TestConfigureSwitchAddressWithoutScheme(t *testing.T) {
 	fake := newFakeUniFi(t)
-	sw := NewSwitch(strings.TrimPrefix(fake.server.URL, "https://"), fakeUniFiUsername, fakeUniFiPassword)
+	sw := NewSwitch(strings.TrimPrefix(fake.server.URL, "https://"), fakeUniFiApiKey)
 	sw.configBackoffDuration = time.Millisecond
 	assert.Nil(t, sw.ConfigureTeamEthernet([6]*model.Team{{Id: 254}, nil, nil, nil, nil, nil}))
 	assertStation(t, fake, 10, "10.2.54.4/24", "10.2.54.20", "10.2.54.199")
