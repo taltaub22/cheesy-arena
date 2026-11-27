@@ -41,7 +41,7 @@ func TestSetupSettings(t *testing.T) {
 			"tbaEventCode=2014cc&tbaSecretId=secretId&tbaSecret=tbasec&transitionShiftDurationSec=12&"+
 			"shiftDurationSec=24&endgameDurationSec=32&ledControllerAddress=10.0.100.61&ledUniverseMode=two&"+
 			"ftaReadySwitchRequired=true&switchManagementEnabled=on&switchAddress=10.0.100.3&"+
-			"switchUsername=admin&switchPassword=1234Five",
+			"switchApiKey=1234Five",
 	)
 	assert.Equal(t, 303, recorder.Code)
 	assert.Equal(t, "/setup/settings#event", recorder.Header().Get("Location"))
@@ -60,8 +60,7 @@ func TestSetupSettings(t *testing.T) {
 	assert.True(t, web.arena.EventSettings.FtaReadySwitchRequired)
 	assert.True(t, web.arena.EventSettings.SwitchManagementEnabled)
 	assert.Equal(t, "10.0.100.3", web.arena.EventSettings.SwitchAddress)
-	assert.Equal(t, "admin", web.arena.EventSettings.SwitchUsername)
-	assert.Equal(t, "1234Five", web.arena.EventSettings.SwitchPassword)
+	assert.Equal(t, "1234Five", web.arena.EventSettings.SwitchApiKey)
 	assert.Contains(t, recorder.Body.String(), "<option value=\"true\" selected>Required</option>")
 	assert.Equal(t, 140, game.GetTeleopDurationSec())
 

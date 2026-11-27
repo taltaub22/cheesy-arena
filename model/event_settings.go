@@ -62,6 +62,7 @@ type EventSettings struct {
 	SwitchAddress                    string
 	SwitchUsername                   string
 	SwitchPassword                   string
+	SwitchApiKey                     string
 	SCCManagementEnabled             bool
 	RedSCCAddress                    string
 	BlueSCCAddress                   string
